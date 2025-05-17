@@ -1,0 +1,50 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+combined.log
+error.log
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Dependency directories
+node_modules/
+jspm_packages/
+
+# Environment variables
+.env
+.env.test
+.env.local
+.env.development
+.env.staging
+.env.production
+
+# Optional npm cache directory
+.npm
+
+# Optional eslint cache
+.eslintcache
+
+# Coverage directory used by tools like istanbul
+coverage
+
+# Compiled binary addons
+build/Release
+
+# Distribution directories
+dist/
+out/
+
+# OS specific
+.DS_Store
+Thumbs.db
+
+# IDE specific files
+.idea/
+.vscode/
+*.swp
+*.swo
