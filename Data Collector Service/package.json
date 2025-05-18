@@ -9,18 +9,19 @@
     "test": "jest"
   },
   "dependencies": {
+    "axios": "^0.26.1",
+    "body-parser": "^1.19.2",
+    "cors": "^2.8.5",
+    "data-collector-service": "file:",
+    "dotenv": "^16.0.0",
     "express": "^4.17.3",
     "mongoose": "^6.2.4",
     "swagger-jsdoc": "^6.1.0",
     "swagger-ui-express": "^4.3.0",
-    "body-parser": "^1.19.2",
-    "dotenv": "^16.0.0",
-    "cors": "^2.8.5",
-    "axios": "^0.26.1",
     "winston": "^3.6.0"
   },
   "devDependencies": {
-    "nodemon": "^2.0.15",
-    "jest": "^27.5.1"
+    "jest": "^27.5.1",
+    "nodemon": "^2.0.15"
   }
 }

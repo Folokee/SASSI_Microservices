@@ -13,12 +13,12 @@ let emailTransporter;
 const initEmailTransporter = () => {
   // Use environment variables for configuration
   const emailConfig = {
-    host: process.env.EMAIL_HOST || 'sandbox.smtp.mailtrap.io',
+    host: process.env.EMAIL_HOST || 'smtp.test.io',
     port: parseInt(process.env.EMAIL_PORT) || 2525,
     secure: process.env.EMAIL_SECURE === 'true',
     auth: {
-      user: process.env.EMAIL_USER || 'b619edc690a00e',
-      pass: process.env.EMAIL_PASSWORD || '996d57b9f8376f'
+      user: process.env.EMAIL_USER || 'test',
+      pass: process.env.EMAIL_PASSWORD || 'test'
     }
   };
   

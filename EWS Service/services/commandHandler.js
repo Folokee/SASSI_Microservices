@@ -81,7 +81,7 @@ const attemptConsensus = async (event) => {
     const scores = Object.values(nodeScores);
     
     // Only attempt consensus if we have scores from multiple nodes
-    if (scores.length >= 2) {
+    if (scores.length >= 1) {
       // Determine consensus
       const consensus = ewsCalculator.determineConsensus(scores);
       

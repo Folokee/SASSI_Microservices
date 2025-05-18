@@ -2,7 +2,7 @@ const amqp = require('amqplib');
 const { logger } = require('../utils/logger');
 
 // AMQP connection URL
-const AMQP_URL = process.env.AMQP_URL || 'amqp://localhost';
+const AMQP_URL = process.env.AMQP_URL || 'amqp://guest:guest@localhost:5672?frameMax=0';
 const EXCHANGE_NAME = 'ews_events';
 
 let connection = null;
@@ -11,21 +11,39 @@ let channel = null;
 /**
  * Initialize the event bus connection
  */
-const initialize = async () => {
+const initialize = async (retryCount = 0) => {
   try {
-    // Connect to RabbitMQ
-    connection = await amqp.connect(AMQP_URL);
+    logger.info(`Connecting to RabbitMQ at ${AMQP_URL}`);
+    
+    // Connect with specific socket options to set frame_max
+    const socketOptions = {
+      frameMax: 0,  // Use server's value (typically 128KB)
+      channelMax: 0  // Use server's value
+    };
+    
+    connection = await amqp.connect(AMQP_URL, socketOptions);
+    
+    // Add connection error handler
+    connection.on('error', (err) => {
+      logger.error('RabbitMQ connection error:', err);
+      if (connection) {
+        connection.close();
+        connection = null;
+      }
+      channel = null;
+    });
+    
     channel = await connection.createChannel();
     
     // Create exchange
     await channel.assertExchange(EXCHANGE_NAME, 'topic', { durable: true });
     
-    logger.info('Event bus connection established');
+    logger.info('Event bus connection established successfully');
     return { connection, channel };
   } catch (error) {
-    logger.error('Failed to initialize event bus:', error);
+    logger.error(`Failed to initialize event bus (attempt ${retryCount + 1}):`, error);
     
-    // If running in development mode, create mock channel for local testing
+    // Development mode fallback
     if (process.env.NODE_ENV === 'development') {
       logger.info('Creating mock event bus for development');
       channel = {
@@ -34,6 +52,7 @@ const initialize = async () => {
           return true;
         }
       };
+      return { connection: null, channel };
     } else {
       throw error;
     }

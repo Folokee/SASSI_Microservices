@@ -4,6 +4,8 @@ const { SensorData, ConsensusData } = require('../models/sensorData');
 const consensusUtil = require('../utils/consensus');
 const alertService = require('../services/alertService');
 const { logger } = require('../utils/logger');
+const ewsHelper = require('../utils/ewsHelper');
+const ewsService = require('../services/ewsService');
 
 /**
  * @swagger
@@ -208,14 +210,14 @@ async function attemptConsensus(newReading) {
   try {
     // Find recent readings for the same patient and sensor type
     const timeWindow = new Date(newReading.timestamp);
-    timeWindow.setSeconds(timeWindow.getSeconds() - 30); // Look at readings in the last 30 seconds
+    timeWindow.setSeconds(timeWindow.getSeconds() - 300000); // Look at readings in the last 30 seconds
     
     const recentReadings = await SensorData.find({
       patientId: newReading.patientId,
       sensorType: newReading.sensorType,
       timestamp: { 
         $gte: timeWindow,
-        $lte: new Date(newReading.timestamp.getTime() + 5000) // Allow readings up to 5 seconds after
+        $lte: new Date(newReading.timestamp.getTime() + 500000) // Allow readings up to 5 seconds after
       }
     }).sort({ timestamp: 1 });
     
@@ -233,7 +235,7 @@ async function attemptConsensus(newReading) {
     const readings = Object.values(nodeReadings);
     
     // Only attempt consensus if we have readings from multiple nodes
-    if (readings.length >= 2) {
+    if (readings.length >= 3) {
       // Determine consensus
       const consensus = consensusUtil.determineConsensus(readings);
       
@@ -263,9 +265,111 @@ async function attemptConsensus(newReading) {
         method: consensus.consensusMethod,
         value: consensus.consensusValue
       });
+      
+      // After saving consensus, check if we have all vital signs needed for EWS calculation
+      await checkAndTriggerEWSCalculation(newReading.patientId);
     }
   } catch (error) {
     logger.error('Error creating consensus:', error);
+  }
+}
+
+/**
+ * Check if all required vital signs for EWS calculation are available
+ * and trigger EWS calculation if they are
+ * @param {String} patientId - The patient's ID 
+ */
+async function checkAndTriggerEWSCalculation(patientId) {
+  try {
+    // Find the most recent consensus data for each vital sign type for this patient
+    const latestConsensusData = await ConsensusData.aggregate([
+      // Match documents for this patient with valid consensus
+      { $match: { 
+        patientId: patientId,
+        validConsensus: true 
+      }},
+      // Sort by timestamp descending (newest first)
+      { $sort: { consensusTimestamp: -1 }},
+      // Group by sensorType, keeping only the most recent document for each
+      { $group: {
+        _id: '$sensorType',
+        consensusId: { $first: '$_id' },
+        sensorType: { $first: '$sensorType' },
+        consensusValue: { $first: '$consensusValue' },
+        consensusTimestamp: { $first: '$consensusTimestamp' },
+        nodeId: { $first: '$readings.nodeId' } // Get the first node ID from readings array
+      }},
+      // Sort results by timestamp to get the most recent ones first
+      { $sort: { consensusTimestamp: -1 }}
+    ]);
+    
+    // Check if we have consensus data older than 5 minutes (consider them outdated)
+    const fiveMinutesAgo = new Date(Date.now() - 50000 * 60 * 1000);
+    
+    // Convert the consensus data to a vital signs object
+    const vitalSigns = {};
+    let oldestTimestamp = new Date();
+    let sourceNodeId = null;
+    
+    latestConsensusData.forEach(consensus => {
+      // Map the sensor type to the EWS vital sign name
+      const ewsVitalName = ewsHelper.mapSensorTypeToEWS(consensus.sensorType);
+      
+      // Skip if this timestamp is too old
+      if (new Date(consensus.consensusTimestamp) < fiveMinutesAgo) {
+        logger.info(`Skipping outdated vital sign ${ewsVitalName} for patient ${patientId}`, {
+          consensusTimestamp: consensus.consensusTimestamp,
+          currentTime: new Date()
+        });
+        return;
+      }
+      
+      // Add to vital signs object
+      vitalSigns[ewsVitalName] = consensus.consensusValue;
+      
+      // Track the oldest timestamp to use for the EWS calculation
+      if (new Date(consensus.consensusTimestamp) < oldestTimestamp) {
+        oldestTimestamp = new Date(consensus.consensusTimestamp);
+      }
+      
+      // Use the first node ID we find as the source
+      if (!sourceNodeId && consensus.nodeId) {
+        sourceNodeId = Array.isArray(consensus.nodeId) ? consensus.nodeId[0] : consensus.nodeId;
+      }
+    });
+
+    // After the loop that processes all vital signs:
+    if (vitalSigns.consciousness !== undefined) {
+      vitalSigns.consciousness = ewsHelper.mapConsciousnessValue(vitalSigns.consciousness);
+    }
+    
+    // If consciousness is missing but we have other vital signs, set a default of "Alert"
+    // (this is optional and depends on your requirements)
+    if (!vitalSigns.consciousness && Object.keys(vitalSigns).length > 0) {
+      vitalSigns.consciousness = "Alert";
+      logger.info(`Using default consciousness value "Alert" for patient ${patientId}`);
+    }
+    
+    // Check if we have all required vital signs
+    if (ewsHelper.hasAllRequiredVitalSigns(vitalSigns)) {
+      logger.info(`All required vital signs available for patient ${patientId}, calculating EWS`, {
+        vitalSigns: Object.keys(vitalSigns)
+      });
+      
+      // Use the first node ID we found, or a default if none is available
+      const nodeId = sourceNodeId || 'data-collector-node';
+      
+      // Call the EWS service to calculate the score
+      await ewsService.calculateEWS(vitalSigns, patientId, nodeId);
+    } else {
+      const missing = ewsHelper.REQUIRED_VITAL_SIGNS.filter(vital => !vitalSigns[vital]);
+      logger.debug(`Not all vital signs available for patient ${patientId}, missing: ${missing.join(', ')}`);
+    }
+  } catch (error) {
+    logger.error(`Error checking vital signs for EWS calculation: ${error.message}`, {
+      patientId,
+      error: error.stack
+    });
   }
 }
 
